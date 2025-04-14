@@ -10,6 +10,7 @@ This repository contains a comprehensive system for scraping, processing, and an
 - Structured storage of tariff information in SQLite database
 - Resilient scraping with automatic retries and error handling
 - Comprehensive logging system
+- **Database to Excel export functionality for data analysis and reporting**
 
 ## System Architecture
 
@@ -19,12 +20,14 @@ The system consists of multiple components that work together:
 2. **PDF Processing Module**: Downloads PDFs and extracts text content
 3. **Data Extraction Module**: Uses OpenAI's GPT-4 to extract structured tariff data
 4. **Database Module**: Stores both PDF metadata and extracted tariff information
+5. **Export Module**: Converts database tables to formatted Excel spreadsheets
 
 ## Prerequisites
 
 - Python 3.8+
 - OpenAI API key
 - FireCrawl API key 
+- pandas, openpyxl 
 
 ## Setup and Installation
 
@@ -57,6 +60,21 @@ This will:
 3. Download PDFs and extract text
 4. Process the text to extract structured tariff data
 5. Store the tariff data in the database
+
+### Exporting Data to Excel
+
+To export the database data to an Excel file for analysis:
+
+```
+python export_to_excel.py
+```
+
+This will create a formatted Excel file (`scraper_data_export.xlsx`) with the following worksheets:
+- PDF Data: All PDF metadata from the database
+- Tariffs: Basic tariff information
+- Container Types: Container specifications with tariff details
+- Rate Tiers: Progressive rate information for different container types
+- Comprehensive View: A joined view of all related tariff data
 
 ## Flow Diagram
 
@@ -106,6 +124,7 @@ The database contains the following tables:
 ## Code Structure
 
 - `main.py`: Entry point, orchestrates the scraping and processing workflow
+- `export_to_excel.py`: Script for exporting database data to Excel format
 - `src/scraping/`: Web scraping modules
   - `scraper.py`: Base web scraper using FireCrawl
   - `region_scraper.py`: Scraper for region information
@@ -134,6 +153,19 @@ Handles downloading PDFs, extracting text, and using GPT-4 to extract structured
 
 ### Main Script (main.py)
 Orchestrates the entire workflow, including setting up logging, handling retries, and calling various components.
+
+### Excel Export (export_to_excel.py)
+Connects to the SQLite database, extracts data from all tables, and creates a formatted Excel file with multiple worksheets for analysis and reporting.
+
+## Excel Export Features
+
+The Excel export functionality provides:
+
+- Separate worksheets for each database table
+- A comprehensive joined view of all related tariff data
+- Formatted headers with bold text and background color
+- Optimized column widths for better readability
+- Hierarchical organization of related data across worksheets
 
 ## Error Handling
 
