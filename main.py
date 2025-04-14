@@ -1,5 +1,4 @@
 import os
-import json
 import logging
 import urllib.parse
 import time
@@ -9,6 +8,7 @@ from src.scraping.pdf_scraper import PdfScraper
 from dotenv import load_dotenv
 import os
 from src.database import database
+from src.extraction.process_tarffic_pdfs import process_tariff_pdfs
 
 def setup_logging():
     log_file = os.getenv('LOG_FILE', 'scraper.log')
@@ -100,11 +100,15 @@ if __name__ == "__main__":
     all_data = scrape_all_regions_and_pdfs(API_KEY, BASE_URL, MAX_RETRIES, RETRY_DELAY, logger)
     if all_data:
         logger.info("Inserting scraped data to the database")
-        database.create_table()
-        database.insert_data(all_data)
+        database.create_pdf_table()
+        database.insert_pdf_data(all_data)
         logger.info("Successfully inserted scraped data to the database")
         total_pdfs = sum(len(region.get('pdfs', [])) for region in all_data['regions'])
         total_regions = len(all_data['regions'])
         logger.info(f"Scraping completed. Found {total_pdfs} PDFs across {total_regions} regions.")
+        logger.info(f"Extracting Data from the PDFs")
+        database.create_tariff_tables()
+        results = process_tariff_pdfs(API_KEY, region="North America")
+        logger.info(f"Finished Extracting Data from the PDFs")
     else:
         logger.error("Scraping process failed")
