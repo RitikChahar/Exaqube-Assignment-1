@@ -11,14 +11,19 @@ from src.scraping.pdf_scraper import PdfScraper
 from dotenv import load_dotenv
 import os
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+def setup_logging():
+    log_file = os.getenv('LOG_FILE', 'scraper.log')
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, mode='a'),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
-def scrape_with_retry(scraper_func, url, max_retries=3, delay=2):
+def scrape_with_retry(scraper_func, url, max_retries=3, delay=2, logger=None):
     attempts = 0
     while attempts < max_retries:
         try:
@@ -37,7 +42,7 @@ def scrape_with_retry(scraper_func, url, max_retries=3, delay=2):
     
     return {"success": False, "error": "Max retries exceeded", "data": []}
 
-def scrape_all_regions_and_pdfs(api_key, base_url, max_retries=3, delay=2):
+def scrape_all_regions_and_pdfs(api_key, base_url, max_retries=3, delay=2, logger=None):
     logger.info("Starting to scrape regions and PDFs")
     
     region_scraper = RegionScraper(api_key)
@@ -49,7 +54,8 @@ def scrape_all_regions_and_pdfs(api_key, base_url, max_retries=3, delay=2):
         scraper_func=region_scraper.scrape_regions,
         url=main_url,
         max_retries=max_retries,
-        delay=delay
+        delay=delay,
+        logger=logger
     )
     
     if not regions_result.get('success', False):
@@ -73,7 +79,8 @@ def scrape_all_regions_and_pdfs(api_key, base_url, max_retries=3, delay=2):
             scraper_func=pdf_scraper.scrape_pdfs,
             url=region_url,
             max_retries=max_retries,
-            delay=delay
+            delay=delay,
+            logger=logger
         )
         
         if region_pdf_result.get('success', False):
@@ -95,7 +102,7 @@ def scrape_all_regions_and_pdfs(api_key, base_url, max_retries=3, delay=2):
     
     return all_regions_pdf_data
 
-def save_results_to_file(data, output_file):
+def save_results_to_file(data, output_file, logger=None):
     logger.info(f"Saving results to {output_file}")
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
@@ -110,12 +117,13 @@ if __name__ == "__main__":
     MAX_RETRIES = int(os.getenv('MAX_RETRIES', '3'))
     RETRY_DELAY = int(os.getenv('RETRY_DELAY', '2'))
     
+    logger = setup_logging()
     logger.info("Starting detention and demurrage PDF scraping process")
     
-    all_data = scrape_all_regions_and_pdfs(API_KEY, BASE_URL, MAX_RETRIES, RETRY_DELAY)
+    all_data = scrape_all_regions_and_pdfs(API_KEY, BASE_URL, MAX_RETRIES, RETRY_DELAY, logger)
     
     if all_data:
-        save_results_to_file(all_data, OUTPUT_FILE)
+        save_results_to_file(all_data, OUTPUT_FILE, logger)
         
         total_pdfs = sum(len(region.get('pdfs', [])) for region in all_data['regions'])
         total_regions = len(all_data['regions'])
