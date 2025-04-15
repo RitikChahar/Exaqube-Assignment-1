@@ -1,114 +1,89 @@
 import os
 import logging
-import urllib.parse
 import time
+import urllib.parse
 import requests
+from dotenv import load_dotenv
 from src.scraping.region_scraper import RegionScraper
 from src.scraping.pdf_scraper import PdfScraper
-from dotenv import load_dotenv
-import os
 from src.database import database
 from src.extraction.process_tarffic_pdfs import process_tariff_pdfs
+import config
 
 def setup_logging():
-    log_file = os.getenv('LOG_FILE', 'scraper.log')
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file, mode='a'),
-            logging.StreamHandler()
-        ]
-    )
-    return logging.getLogger(__name__)
+    try:
+        log_file = os.getenv('LOG_FILE', 'scraper.log')
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', handlers=[logging.FileHandler(log_file, mode='a'), logging.StreamHandler()])
+        return logging.getLogger(__name__)
+    except Exception as e:
+        print("Logging setup error: " + str(e))
+        raise
 
-def scrape_with_retry(scraper_func, url, max_retries=3, delay=2, logger=None):
+def scrape_with_retry(scraper_func, url, max_retries, delay, logger):
     attempts = 0
     while attempts < max_retries:
         try:
             return scraper_func(url)
-        except requests.exceptions.HTTPError as e:
-            if "timeout" in str(e).lower() and attempts < max_retries - 1:
-                attempts += 1
-                logger.warning(f"Request timed out for {url}. Retrying in {delay} seconds... (Attempt {attempts}/{max_retries})")
-                time.sleep(delay)
-            else:
-                logger.error(f"Failed to scrape {url} after {attempts+1} attempts: {str(e)}")
-                return {"success": False, "error": str(e), "data": []}
         except Exception as e:
-            logger.error(f"Unexpected error when scraping {url}: {str(e)}")
-            return {"success": False, "error": str(e), "data": []}
+            attempts += 1
+            logger.error("Scraping error for {}: {}. Attempt {}/{}".format(url, str(e), attempts, max_retries))
+            time.sleep(delay)
     return {"success": False, "error": "Max retries exceeded", "data": []}
 
-def scrape_all_regions_and_pdfs(api_key, base_url, max_retries=3, delay=2, logger=None):
-    logger.info("Starting to scrape regions and PDFs")
-    region_scraper = RegionScraper(api_key)
-    pdf_scraper = PdfScraper(api_key)
-    main_url = f"{base_url}/en/online-business/quotation/detention-demurrage.html"
-    regions_result = scrape_with_retry(
-        scraper_func=region_scraper.scrape_regions,
-        url=main_url,
-        max_retries=max_retries,
-        delay=delay,
-        logger=logger
-    )
-    if not regions_result.get('success', False):
-        logger.error(f"Failed to scrape regions: {regions_result.get('error', 'Unknown error')}")
-        return None
-    all_regions_pdf_data = {
-        'success': True,
-        'regions': []
-    }
-    for region_info in regions_result['data']:
-        region_name = region_info['region']
-        region_link = region_info['link']
-        logger.info(f"Scraping PDFs for region: {region_name}")
-        region_url = urllib.parse.urljoin(base_url, region_link)
-        region_pdf_result = scrape_with_retry(
-            scraper_func=pdf_scraper.scrape_pdfs,
-            url=region_url,
-            max_retries=max_retries,
-            delay=delay,
-            logger=logger
-        )
-        if region_pdf_result.get('success', False):
-            region_data = {
-                'region': region_name,
-                'url': region_url,
-                'pdfs': region_pdf_result['data']
-            }
-            all_regions_pdf_data['regions'].append(region_data)
-            logger.info(f"Found {len(region_pdf_result['data'])} PDFs for {region_name}")
-        else:
-            logger.error(f"Failed to scrape PDFs for region {region_name}: {region_pdf_result.get('error', 'Unknown error')}")
-            all_regions_pdf_data['regions'].append({
-                'region': region_name,
-                'url': region_url,
-                'error': region_pdf_result.get('error', 'Unknown error'),
-                'pdfs': []
-            })
-    return all_regions_pdf_data
+def scrape_all_pdfs(selected_region, regions, pdf_scraper, base_url, max_retries, retry_delay, logger):
+    pdf_data_list = []
+    for region_info in regions:
+        try:
+            region_name = region_info.get('region')
+            if selected_region.lower() != "all" and region_name != selected_region:
+                continue
+            region_url = urllib.parse.urljoin(base_url, region_info.get('link'))
+            logger.info("Scraping PDFs for region: " + region_name)
+            pdf_result = scrape_with_retry(pdf_scraper.scrape_pdfs, region_url, max_retries, retry_delay, logger)
+            pdfs_modified = []
+            for pdf in pdf_result.get("data", []):
+                try:
+                    title = pdf.get("pdf_title", "")
+                    country_name = title.split()[0] if title else ""
+                    pdf["country"] = country_name
+                    pdfs_modified.append(pdf)
+                except Exception as e:
+                    logger.error("Error processing pdf title for region {}: {}".format(region_name, str(e)))
+            pdf_data_list.append({"region": region_name, "url": region_url, "pdfs": pdfs_modified})
+        except Exception as e:
+            logger.error("Error scraping PDFs for region {}: {}".format(region_info.get('region', 'Unknown'), str(e)))
+    return pdf_data_list
 
 if __name__ == "__main__":
-    load_dotenv()
-    API_KEY = os.getenv('API_KEY')
-    BASE_URL = os.getenv('BASE_URL')
-    MAX_RETRIES = int(os.getenv('MAX_RETRIES', '3'))
-    RETRY_DELAY = int(os.getenv('RETRY_DELAY', '2'))
-    logger = setup_logging()
-    logger.info("Starting detention and demurrage PDF scraping process")
-    all_data = scrape_all_regions_and_pdfs(API_KEY, BASE_URL, MAX_RETRIES, RETRY_DELAY, logger)
-    if all_data:
-        logger.info("Inserting scraped data to the database")
+    try:
+        load_dotenv()
+        API_KEY = os.getenv('API_KEY')
+        GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+        BASE_URL = os.getenv('BASE_URL')
+        MAX_RETRIES = int(os.getenv('MAX_RETRIES', '3'))
+        RETRY_DELAY = int(os.getenv('RETRY_DELAY', '2'))
+        logger = setup_logging()
+        logger.info("Starting scraping process")
+        region_scraper = RegionScraper(API_KEY)
+        main_url = urllib.parse.urljoin(BASE_URL, "/en/online-business/quotation/detention-demurrage.html")
+        regions_result = scrape_with_retry(region_scraper.scrape_regions, main_url, MAX_RETRIES, RETRY_DELAY, logger)
+        if not regions_result.get('success'):
+            logger.error("Region scraping failed: {}".format(regions_result.get('error')))
+            exit(1)
+        regions = regions_result.get('data', [])
+        logger.info("Regions scraped")
+        selected_region = config.REGION
+        pdf_scraper = PdfScraper(API_KEY)
+        pdf_data_list = scrape_all_pdfs(selected_region, regions, pdf_scraper, BASE_URL, MAX_RETRIES, RETRY_DELAY, logger)
+        if not pdf_data_list:
+            logger.error("No matching regions found for " + selected_region)
+            exit(1)
         database.create_pdf_table()
-        database.insert_pdf_data(all_data)
-        logger.info("Successfully inserted scraped data to the database")
-        total_pdfs = sum(len(region.get('pdfs', [])) for region in all_data['regions'])
-        total_regions = len(all_data['regions'])
-        logger.info(f"Scraping completed. Found {total_pdfs} PDFs across {total_regions} regions.")
-        logger.info(f"Extracting Data from the PDFs")
+        for pdf_data in pdf_data_list:
+            database.insert_pdf_data({"regions": [pdf_data]})
+        logger.info("PDF data inserted")
         database.create_tariff_tables()
-        results = process_tariff_pdfs(API_KEY, region="North America")
-        logger.info(f"Finished Extracting Data from the PDFs")
-    else:
-        logger.error("Scraping process failed")
+        process_tariff_pdfs(GEMINI_API_KEY, region=selected_region, country=config.COUNTRY)
+        logger.info("PDF extraction completed")
+    except Exception as e:
+        logger.error("Process failed: " + str(e))
