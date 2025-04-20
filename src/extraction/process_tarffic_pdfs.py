@@ -3,7 +3,8 @@ import os
 import requests
 import PyPDF2
 from google import genai
-from src.database.database import fetch_pdf_data_by_region, insert_pdf_data, insert_tariff_data, create_tariff_tables
+from src.database.database import fetch_pdf_data_by_region, insert_tariff_data
+from pprint import pprint
 
 def process_tariff_pdfs(api_key, region="ALL", country="ALL"):
     try:
@@ -30,7 +31,6 @@ def process_tariff_pdfs(api_key, region="ALL", country="ALL"):
             
         try:
             tariff_data = extract_tariff_data(extracted_text, client, region_name)
-            create_tariff_tables()
             insert_tariff_data(tariff_data)
             results[file_path] = "Successfully processed and saved tariff data"
         except Exception as e:

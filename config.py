@@ -1,2 +1,2 @@
 REGION = "Asia"
-COUNTRY = "India"
+COUNTRY = "China"
